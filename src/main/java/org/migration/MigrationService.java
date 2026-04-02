@@ -17,9 +17,20 @@ public class MigrationService {
     private static final String MIGRATIONS_PATH = "src/main/resources/migrations";
     private final MigrationRepository migrationRepository;
 
-    public void migrate() throws SQLException, IOException {
-        try (Connection conn = DatabaseConfig.getConnection()) {
+    public void migrate() throws SQLException, IOException, InterruptedException {
+        Connection conn = DatabaseConfig.getConnection();
+        try {
+            long start = System.currentTimeMillis();
+            conn.setAutoCommit(false);
             migrationRepository.createLogTable(conn);
+            migrationRepository.createLockTable(conn);
+            while (!migrationRepository.acquireLock(conn)) {
+                if (System.currentTimeMillis() - start > 30000) {
+                    throw new RuntimeException("Failed to acquire lock");
+                }
+                Thread.sleep(1000);
+            }
+            conn.commit();
             List<Migration> migrations = scanMigrationFiles();
             List<Migration> appliedMigrations = migrationRepository.getAppliedMigrations(conn);
             for (Migration migration : migrations) {
@@ -32,12 +43,24 @@ public class MigrationService {
                     }
                 } else {
                     String sql = Files.readString(Paths.get(MIGRATIONS_PATH, migration.getFilename()));
-                    migrationRepository.executeMigration(conn, sql);
-                    migrationRepository.saveMigration(conn, migration);
+                    try {
+                        migrationRepository.executeMigration(conn, sql);
+                        migrationRepository.saveMigration(conn, migration);
+                        conn.commit();
+                    } catch (SQLException e) {
+                        conn.rollback();
+                        throw e;
+                    }
                 }
             }
+        } finally {
+            try {
+                migrationRepository.releaseLock(conn);
+                conn.commit();
+            } finally {
+                conn.close();
+            }
         }
-
     }
 
     private List<Migration> scanMigrationFiles() throws IOException {
@@ -56,7 +79,7 @@ public class MigrationService {
             }
         }
 
-        list.sort(Comparator.comparing(Migration::getVersion));
+        list.sort(Comparator.comparing(m -> Integer.parseInt(m.getVersion())));
         return list;
     }
 }

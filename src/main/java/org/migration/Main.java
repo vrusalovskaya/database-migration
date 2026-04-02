@@ -8,10 +8,8 @@ public class Main {
         MigrationService service = new MigrationService(new MigrationRepository());
         try {
             service.migrate();
-        } catch (SQLException e) {
-            System.out.println("Error while accessing database.");
-        } catch (IOException e) {
-            System.out.println("Error while working with migration files");
+        } catch (SQLException | IOException | InterruptedException e) {
+            System.out.println(e.getMessage());
         }
     }
 }
