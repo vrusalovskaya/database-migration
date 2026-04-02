@@ -1,6 +1,8 @@
 package org.migration;
 
 import lombok.AllArgsConstructor;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -13,7 +15,7 @@ import java.util.stream.Stream;
 
 @AllArgsConstructor
 public class MigrationService {
-
+    private static final Logger log = LogManager.getLogger(MigrationService.class);
     private static final String MIGRATIONS_PATH = "src/main/resources/migrations";
     private final MigrationRepository migrationRepository;
 
@@ -26,11 +28,13 @@ public class MigrationService {
             migrationRepository.createLockTable(conn);
             while (!migrationRepository.acquireLock(conn)) {
                 if (System.currentTimeMillis() - start > 30000) {
+                    log.error("Failed to acquire lock");
                     throw new RuntimeException("Failed to acquire lock");
                 }
                 Thread.sleep(1000);
             }
             conn.commit();
+            log.info("Lock acquired");
             List<Migration> migrations = scanMigrationFiles();
             List<Migration> appliedMigrations = migrationRepository.getAppliedMigrations(conn);
             for (Migration migration : migrations) {
@@ -39,24 +43,29 @@ public class MigrationService {
                         .findFirst();
                 if (appliedMigration.isPresent()) {
                     if (!appliedMigration.get().getCheckSum().equals(migration.getCheckSum())) {
+                        log.error("Checksum mismatch for migration {}", migration.getVersion());
                         throw new RuntimeException("Migration file checksum mismatch. Version: " + migration.getVersion());
                     }
                 } else {
                     String sql = Files.readString(Paths.get(MIGRATIONS_PATH, migration.getFilename()));
                     try {
+                        log.info("Executing migration {}", migration.getVersion());
                         migrationRepository.executeMigration(conn, sql);
                         migrationRepository.saveMigration(conn, migration);
                         conn.commit();
                     } catch (SQLException e) {
+                        log.error("Migration failed for version {}", migration.getVersion(), e);
                         conn.rollback();
                         throw e;
                     }
                 }
             }
+            log.info("Migrations executed");
         } finally {
             try {
                 migrationRepository.releaseLock(conn);
                 conn.commit();
+                log.info("Lock released");
             } finally {
                 conn.close();
             }
