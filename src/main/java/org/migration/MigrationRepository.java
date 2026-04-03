@@ -46,7 +46,7 @@ public class MigrationRepository {
     public void createLogTable(Connection conn) throws SQLException {
         String sql = """
                 CREATE TABLE IF NOT EXISTS migration_history (
-                    id SERIAL PRIMARY KEY,
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     version VARCHAR(255) UNIQUE NOT NULL,
                     description VARCHAR(255),
                     check_sum VARCHAR(256) NOT NULL
@@ -54,6 +54,13 @@ public class MigrationRepository {
                 """;
         try (Statement stmt = conn.createStatement()) {
             stmt.execute(sql);
+        }
+    }
+
+    public boolean checkLogTableExists(Connection conn) throws SQLException {
+        try (ResultSet rs = conn.createStatement()
+                .executeQuery("SHOW TABLES LIKE 'migration_history'")) {
+            return rs.next();
         }
     }
 
@@ -98,6 +105,15 @@ public class MigrationRepository {
             ps.setString(1, migration.getVersion());
             ps.setString(2, migration.getDescription());
             ps.setString(3, migration.getCheckSum());
+            ps.executeUpdate();
+        }
+    }
+
+    public void deleteMigration(Connection conn, String version) throws SQLException {
+        String sql = "DELETE FROM migration_history WHERE version = ?";
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, version);
             ps.executeUpdate();
         }
     }
