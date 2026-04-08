@@ -1,20 +1,29 @@
-package org.migration;
+package org.migration.presentation;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.migration.repository.MySqlMigrationRepository;
+import org.migration.service.*;
+import org.migration.util.JdbcConnectionProvider;
+import org.migration.util.Sha256HashCalculator;
+import org.migration.util.ThreadSleeper;
 
 import java.util.Scanner;
 
 public class Main {
     private static final Logger log = LogManager.getLogger(Main.class);
+    private static final String URL = "jdbc:mysql://localhost:3306/test_migration_db";
+    private static final String USER = "migration_user";
+    private static final String PASSWORD = "password123";
 
     public static void main(String[] args) {
-        MigrationService service = new MigrationService(new MigrationRepository());
+        MigrationService service = getMigrationService();
+
         try (Scanner in = new Scanner(System.in)) {
             System.out.println("""
                     Custom migration tool
                     Please specify the required action:
-                    /migrate - initiating migration process
+                    /migrate - initiate migration process
                     /rollback - rollback last migration
                     /rollback + number - rollback to specific version
                     /end - terminate program""");
@@ -56,5 +65,18 @@ public class Main {
         } catch (Exception e) {
             log.error(e);
         }
+    }
+
+    private static MigrationService getMigrationService() {
+        MigrationSource migrationSource =
+                new FileMigrationSource("src/main/resources/migrations", ".sql");
+
+        return new MigrationServiceImpl(
+                new MySqlMigrationRepository(),
+                new JdbcConnectionProvider(URL, USER, PASSWORD),
+                migrationSource,
+                new SQLMigrationParser(new Sha256HashCalculator(), migrationSource),
+                new ThreadSleeper());
+
     }
 }

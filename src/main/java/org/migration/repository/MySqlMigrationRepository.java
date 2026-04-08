@@ -1,15 +1,16 @@
-package org.migration;
+package org.migration.repository;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.migration.model.Migration;
 
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MigrationRepository {
+public class MySqlMigrationRepository implements MigrationRepository {
 
-    private static final Logger log = LogManager.getLogger(MigrationRepository.class);
+    private static final Logger log = LogManager.getLogger(MySqlMigrationRepository.class);
 
     public void createLockTable(Connection conn) throws SQLException {
         String sql = """
@@ -19,19 +20,20 @@ public class MigrationRepository {
                     locked_at TIMESTAMP
                 );
                 """;
-        String sql_insert = "INSERT IGNORE INTO migration_lock (id, locked) VALUES (1, false);";
+        String sqlInsert = "INSERT IGNORE INTO migration_lock (id, locked) VALUES (1, false);";
         try (Statement stmt = conn.createStatement()) {
             stmt.execute(sql);
-            stmt.execute(sql_insert);
+            stmt.execute(sqlInsert);
         }
     }
 
     public boolean acquireLock(Connection conn) throws SQLException {
+        String sql = """
+                UPDATE migration_lock
+                SET locked = true, locked_at = NOW()
+                WHERE id = 1 AND locked = false;""";
         try (Statement stmt = conn.createStatement()) {
-            int updatedRows = stmt.executeUpdate("""
-                    UPDATE migration_lock
-                    SET locked = true, locked_at = NOW()
-                    WHERE id = 1 AND locked = false;""");
+            int updatedRows = stmt.executeUpdate(sql);
             return updatedRows > 0;
         }
     }
@@ -58,17 +60,16 @@ public class MigrationRepository {
     }
 
     public boolean checkLogTableExists(Connection conn) throws SQLException {
-        try (ResultSet rs = conn.createStatement()
-                .executeQuery("SHOW TABLES LIKE 'migration_history'")) {
+        String sql = "SHOW TABLES LIKE 'migration_history'";
+        try (ResultSet rs = conn.createStatement().executeQuery(sql)) {
             return rs.next();
         }
     }
 
     public List<Migration> getAppliedMigrations(Connection conn) throws SQLException {
         List<Migration> list = new ArrayList<>();
-
-        try (ResultSet rs = conn.createStatement()
-                .executeQuery("SELECT version, check_sum FROM migration_history")) {
+        String sql = "SELECT version, check_sum FROM migration_history";
+        try (ResultSet rs = conn.createStatement().executeQuery(sql)) {
             while (rs.next()) {
                 Migration migration = new Migration();
                 migration.setVersion(rs.getString("version"));
@@ -86,8 +87,8 @@ public class MigrationRepository {
             for (String query : queries) {
                 query = query.trim();
                 if (!query.isEmpty()) {
-                    log.info("Executing: {}", query);
                     try {
+                        log.info("Executing: {}", query);
                         stmt.execute(query);
                     } catch (SQLException e) {
                         log.error("Error executing: {}", query, e);
@@ -111,7 +112,6 @@ public class MigrationRepository {
 
     public void deleteMigration(Connection conn, String version) throws SQLException {
         String sql = "DELETE FROM migration_history WHERE version = ?";
-
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, version);
             ps.executeUpdate();

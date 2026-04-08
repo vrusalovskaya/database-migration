@@ -1,4 +1,4 @@
-package org.migration;
+package org.migration.model;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -12,6 +12,6 @@ import lombok.Setter;
 public class Migration {
     private String version;
     private String description;
-    private String filename;
+    private Resource resource;
     private String checkSum;
 }
