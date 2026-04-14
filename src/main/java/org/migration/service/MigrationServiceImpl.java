@@ -28,13 +28,13 @@ public class MigrationServiceImpl implements MigrationService {
     public void migrate() throws SQLException, IOException {
         Connection conn = connectionProvider.getConnection();
         try {
-            prepareDb(conn, true);
+            setupMigrationContext(conn, true);
 
             List<Migration> migrations = getAvailableMigrations();
             List<Migration> appliedMigrations = migrationRepository.getAppliedMigrations(conn);
 
             for (Migration migration : migrations) {
-                if (checkMigrationBeingAlreadyApplied(migration, appliedMigrations)) {
+                if (isAppliedWithValidChecksum(migration, appliedMigrations)) {
                     continue;
                 }
                 executeMigration(migration, conn);
@@ -50,13 +50,13 @@ public class MigrationServiceImpl implements MigrationService {
     public void rollback(Integer targetVersion) throws SQLException, IOException {
         Connection conn = connectionProvider.getConnection();
         try {
-            prepareDb(conn, false);
+            setupMigrationContext(conn, false);
 
-            List<Migration> appliedMigrations = loadAppliedMigrationsForRollback(conn);
+            List<Migration> appliedMigrations = getAppliedMigrationsInReverse(conn);
 
             int index = 0;
             Integer currentVersion = Integer.parseInt(appliedMigrations.get(index).version());
-            targetVersion = validateTargetVersion(targetVersion, currentVersion, appliedMigrations);
+            targetVersion = resolveTargetVersion(targetVersion, currentVersion, appliedMigrations);
 
             while (!currentVersion.equals(targetVersion)) {
                 executeRollback(currentVersion, conn);
@@ -69,8 +69,7 @@ public class MigrationServiceImpl implements MigrationService {
         }
     }
 
-    //rename?
-    private void prepareDb(Connection conn, boolean createLogTable) throws SQLException {
+    private void setupMigrationContext(Connection conn, boolean createLogTable) throws SQLException {
         conn.setAutoCommit(false);
         if (!migrationRepository.acquireLock(conn)) {
             throw new RuntimeException("Could not acquire migration lock. Another process is running.");
@@ -93,7 +92,7 @@ public class MigrationServiceImpl implements MigrationService {
                 .toList();
     }
 
-    private boolean checkMigrationBeingAlreadyApplied(Migration migration, List<Migration> appliedMigrations) {
+    private boolean isAppliedWithValidChecksum(Migration migration, List<Migration> appliedMigrations) {
         Optional<Migration> appliedMigration = findMigrationAmongApplied(migration.version(), appliedMigrations);
         if (appliedMigration.isPresent()) {
             if (!appliedMigration.get().checkSum().equals(migration.checkSum())) {
@@ -125,7 +124,7 @@ public class MigrationServiceImpl implements MigrationService {
         }
     }
 
-    private List<Migration> loadAppliedMigrationsForRollback(Connection conn) throws SQLException {
+    private List<Migration> getAppliedMigrationsInReverse(Connection conn) throws SQLException {
         if (!migrationRepository.checkLogTableExists(conn)) {
             throw new RuntimeException("Migration history is empty. Nothing to rollback");
         }
@@ -139,7 +138,7 @@ public class MigrationServiceImpl implements MigrationService {
         return appliedMigrations;
     }
 
-    private Integer validateTargetVersion(Integer targetVersion, Integer currentVersion, List<Migration> appliedMigrations) {
+    private Integer resolveTargetVersion(Integer targetVersion, Integer currentVersion, List<Migration> appliedMigrations) {
         if (targetVersion == null) {
             targetVersion = Integer.parseInt(appliedMigrations.get(1).version());
         } else if (targetVersion >= currentVersion) {

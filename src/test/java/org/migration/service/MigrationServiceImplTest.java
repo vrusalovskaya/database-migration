@@ -48,7 +48,7 @@ class MigrationServiceImplTest {
 
     @Test
     void migrate_shouldExecuteAndSaveTransaction_whenNoAppliedTransactions() throws SQLException, IOException {
-        prepareDbBeforeMigrate();
+        setupMigrationContextBeforeMigrate();
 
         doReturn(List.of(resource1)).when(migrationSource).getMigrationResources();
         when(migrationParser.parse(resource1)).thenReturn(migration1);
@@ -68,7 +68,7 @@ class MigrationServiceImplTest {
 
     @Test
     void migrate_shouldApplyOnlySecondTransaction_whenFirstIsAlreadyApplied() throws SQLException, IOException {
-        prepareDbBeforeMigrate();
+        setupMigrationContextBeforeMigrate();
 
         List<Resource> resources = new ArrayList<>();
         resources.add(resource1);
@@ -97,7 +97,7 @@ class MigrationServiceImplTest {
 
     @Test
     void migrate_shouldNotApplyAnything_whenAllTransactionsAlreadyApplied() throws SQLException, IOException {
-        prepareDbBeforeMigrate();
+        setupMigrationContextBeforeMigrate();
 
         List<Resource> resources = new ArrayList<>();
         resources.add(resource1);
@@ -126,7 +126,7 @@ class MigrationServiceImplTest {
 
     @Test
     void migrate_shouldThrow_whenFileWasChanged() throws SQLException, IOException {
-        prepareDbBeforeMigrate();
+        setupMigrationContextBeforeMigrate();
 
         doReturn(List.of(resource1)).when(migrationSource).getMigrationResources();
         when(migrationParser.parse(resource1)).thenReturn(migration1);
@@ -145,7 +145,7 @@ class MigrationServiceImplTest {
 
     @Test
     void migrate_shouldThrowAndExecuteTransactionRollback_whenSqlErrorArise() throws SQLException, IOException {
-        prepareDbBeforeMigrate();
+        setupMigrationContextBeforeMigrate();
 
         doReturn(List.of(resource1)).when(migrationSource).getMigrationResources();
         when(migrationParser.parse(resource1)).thenReturn(migration1);
@@ -166,7 +166,7 @@ class MigrationServiceImplTest {
 
     @Test
     void rollback_shouldRollbackLastTransaction_whenNoVersionPassed() throws SQLException, IOException {
-        prepareDbBeforeRollback();
+        setupMigrationContextBeforeRollback();
 
         when(migrationRepository.getAppliedMigrations(conn)).thenReturn(getListOf3Migrations());
 
@@ -185,7 +185,7 @@ class MigrationServiceImplTest {
 
     @Test
     void rollback_shouldRollbackToSpecifiedVersion_whenVersionPassed() throws SQLException, IOException {
-        prepareDbBeforeRollback();
+        setupMigrationContextBeforeRollback();
 
         when(migrationRepository.getAppliedMigrations(conn)).thenReturn(getListOf3Migrations());
 
@@ -206,7 +206,7 @@ class MigrationServiceImplTest {
 
     @Test
     void rollback_shouldThrow_whenTargetVersionBiggerThanCurrent() throws SQLException {
-        prepareDbBeforeRollback();
+        setupMigrationContextBeforeRollback();
 
         when(migrationRepository.getAppliedMigrations(conn)).thenReturn(getListOf3Migrations());
 
@@ -219,7 +219,7 @@ class MigrationServiceImplTest {
 
     @Test
     void rollback_shouldThrow_whenNoAppliedMigrationFoundForGivenVersion() throws SQLException {
-        prepareDbBeforeRollback();
+        setupMigrationContextBeforeRollback();
 
         when(migrationRepository.getAppliedMigrations(conn)).thenReturn(getListOf3Migrations());
 
@@ -246,7 +246,7 @@ class MigrationServiceImplTest {
 
     @Test
     void rollback_shouldThrow_whenLogIsEmpty() throws SQLException{
-        prepareDbBeforeRollback();
+        setupMigrationContextBeforeRollback();
 
         when(migrationRepository.getAppliedMigrations(conn)).thenReturn(List.of());
 
@@ -259,7 +259,7 @@ class MigrationServiceImplTest {
 
     @Test
     void rollback_shouldThrow_whenNoRollbackFileForGivenVersion() throws SQLException, IOException {
-        prepareDbBeforeRollback();
+        setupMigrationContextBeforeRollback();
 
         when(migrationRepository.getAppliedMigrations(conn)).thenReturn(getListOf3Migrations());
         when(migrationSource.getRollbackResource("4")).thenReturn(Optional.empty());
@@ -273,7 +273,7 @@ class MigrationServiceImplTest {
 
     @Test
     void rollback_shouldThrowAndExecuteTransactionRollback_whenSqlErrorArise() throws SQLException, IOException {
-        prepareDbBeforeRollback();
+        setupMigrationContextBeforeRollback();
 
         when(migrationRepository.getAppliedMigrations(conn)).thenReturn(getListOf3Migrations());
 
@@ -291,12 +291,12 @@ class MigrationServiceImplTest {
         verifyLockReleasedAndConnectionClosed();
     }
 
-    private void prepareDbBeforeMigrate() throws SQLException {
+    private void setupMigrationContextBeforeMigrate() throws SQLException {
         when(connectionProvider.getConnection()).thenReturn(conn);
         when(migrationRepository.acquireLock(conn)).thenReturn(true);
     }
 
-    private void prepareDbBeforeRollback() throws SQLException {
+    private void setupMigrationContextBeforeRollback() throws SQLException {
         when(connectionProvider.getConnection()).thenReturn(conn);
         when(migrationRepository.acquireLock(conn)).thenReturn(true);
         when(migrationRepository.checkLogTableExists(conn)).thenReturn(true);
