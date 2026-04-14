@@ -14,7 +14,7 @@ public class SQLMigrationParser implements MigrationParser {
 
     @Override
     public Migration parse(Resource resource) throws IOException {
-        String[] parts = resource.getName().split("__");
+        String[] parts = resource.name().split("__");
         String version = parts[0].substring(1);
         String description = parts[1].replace(".sql", "");
         String checkSum = hashCalculator.calculate(migrationSource.read(resource));

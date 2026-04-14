@@ -12,36 +12,25 @@ public class MySqlMigrationRepository implements MigrationRepository {
 
     private static final Logger log = LogManager.getLogger(MySqlMigrationRepository.class);
 
-    public void createLockTable(Connection conn) throws SQLException {
-        String sql = """
-                CREATE TABLE IF NOT EXISTS migration_lock (
-                    id INT PRIMARY KEY,
-                    locked BOOLEAN DEFAULT FALSE,
-                    locked_at TIMESTAMP
-                );
-                """;
-        String sqlInsert = "INSERT IGNORE INTO migration_lock (id, locked) VALUES (1, false);";
-        try (Statement stmt = conn.createStatement()) {
-            stmt.execute(sql);
-            stmt.execute(sqlInsert);
-        }
-    }
-
     public boolean acquireLock(Connection conn) throws SQLException {
-        String sql = """
-                UPDATE migration_lock
-                SET locked = true, locked_at = NOW()
-                WHERE id = 1 AND locked = false;""";
-        try (Statement stmt = conn.createStatement()) {
-            int updatedRows = stmt.executeUpdate(sql);
-            return updatedRows > 0;
+        String sql = "SELECT GET_LOCK('migration_lock_name', 0)";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            ResultSet rs = stmt.executeQuery(sql);
+            if (rs.next() && rs.getInt(1) == 1) {
+                log.info("Lock acquired");
+                return true;
+            }
+           return false;
         }
     }
 
     public void releaseLock(Connection conn) throws SQLException {
-        String sql = "UPDATE migration_lock SET locked = false, locked_at = NOW() WHERE id = 1";
-        try (Statement stmt = conn.createStatement()) {
-            stmt.execute(sql);
+        String sql = "SELECT RELEASE_LOCK('migration_lock_name')";
+        try (PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            if (rs.next() && rs.getInt(1) == 1) {
+                log.info("Named lock released successfully.");
+            }
         }
     }
 
@@ -71,9 +60,9 @@ public class MySqlMigrationRepository implements MigrationRepository {
         String sql = "SELECT version, check_sum FROM migration_history";
         try (ResultSet rs = conn.createStatement().executeQuery(sql)) {
             while (rs.next()) {
-                Migration migration = new Migration();
-                migration.setVersion(rs.getString("version"));
-                migration.setCheckSum(rs.getString("check_sum"));
+                Migration migration = new Migration(
+                        rs.getString("version"), null, null,
+                        rs.getString("check_sum"));
                 list.add(migration);
             }
         }
@@ -82,18 +71,12 @@ public class MySqlMigrationRepository implements MigrationRepository {
     }
 
     public void executeMigration(Connection conn, String sql) throws SQLException {
+        String[] queries = sql.split(";");
         try (Statement stmt = conn.createStatement()) {
-            String[] queries = sql.split(";");
             for (String query : queries) {
-                query = query.trim();
+                String  sanitizedQuery = query.trim();
                 if (!query.isEmpty()) {
-                    try {
-                        log.info("Executing: {}", query);
-                        stmt.execute(query);
-                    } catch (SQLException e) {
-                        log.error("Error executing: {}", query, e);
-                        throw e;
-                    }
+                    executeSingleQuery(sanitizedQuery, stmt);
                 }
             }
         }
@@ -103,9 +86,9 @@ public class MySqlMigrationRepository implements MigrationRepository {
         String sql = "INSERT INTO migration_history(version, description, check_sum ) VALUES (?, ?, ?)";
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, migration.getVersion());
-            ps.setString(2, migration.getDescription());
-            ps.setString(3, migration.getCheckSum());
+            ps.setString(1, migration.version());
+            ps.setString(2, migration.description());
+            ps.setString(3, migration.checkSum());
             ps.executeUpdate();
         }
     }
@@ -115,6 +98,16 @@ public class MySqlMigrationRepository implements MigrationRepository {
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, version);
             ps.executeUpdate();
+        }
+    }
+
+    private static void executeSingleQuery(String query, Statement stmt) throws SQLException {
+        try {
+            log.info("Executing: {}", query);
+            stmt.execute(query);
+        } catch (SQLException e) {
+            log.error("Error executing: {}", query, e);
+            throw e;
         }
     }
 }

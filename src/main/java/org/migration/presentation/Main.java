@@ -5,19 +5,29 @@ import org.apache.logging.log4j.Logger;
 import org.migration.repository.MySqlMigrationRepository;
 import org.migration.service.*;
 import org.migration.util.JdbcConnectionProvider;
+import org.migration.util.MigrationAction;
 import org.migration.util.Sha256HashCalculator;
-import org.migration.util.ThreadSleeper;
 
+import java.io.IOException;
+import java.sql.SQLException;
+import java.util.Optional;
 import java.util.Scanner;
 
 public class Main {
     private static final Logger log = LogManager.getLogger(Main.class);
-    private static final String URL = "jdbc:mysql://localhost:3306/test_migration_db";
-    private static final String USER = "migration_user";
-    private static final String PASSWORD = "password123";
 
     public static void main(String[] args) {
-        MigrationService service = getMigrationService();
+
+        if (args.length < 3) {
+            System.out.println("Usage: java Main <url> <user> <password>");
+            return;
+        }
+
+        String url = args[0];
+        String user = args[1];
+        String password = args[2];
+
+        MigrationService service = getMigrationService(url, user, password);
 
         try (Scanner in = new Scanner(System.in)) {
             System.out.println("""
@@ -30,31 +40,16 @@ public class Main {
             while (true) {
                 String command = in.nextLine().trim();
                 if (command.equals("/migrate")) {
-                    System.out.println("Starting migration tool...");
-                    try {
-                        service.migrate();
-                    } catch (RuntimeException e) {
-                        log.error(e);
-                    }
+                    execute("Starting migration tool...", service::migrate);
                 } else if (command.equals("/rollback")) {
-                    System.out.println("Rolling back the last migration...");
-                    try {
-                        service.rollback(null);
-                    } catch (RuntimeException e) {
-                        log.error(e);
-                    }
+                    execute("Rolling back the last migration...",
+                            () -> service.rollback(null));
                 } else if (command.startsWith("/rollback")) {
                     String version = command.substring("/rollback".length()).trim();
-                    try {
-                        Integer number = Integer.parseInt(version);
-                        System.out.println("Rolling back to version " + number + "...");
-                        try {
-                            service.rollback(number);
-                        } catch (RuntimeException e) {
-                            log.error(e);
-                        }
-                    } catch (NumberFormatException e) {
-                        System.out.println("Invalid version number: " + version + " \nTry again.");
+                    Optional<Integer> number = parse(version);
+                    if (number.isPresent()) {
+                        execute("Rolling back to version " + number + "...",
+                                () -> service.rollback(number.get()));
                     }
                 } else if (command.equals("/end")) {
                     break;
@@ -67,16 +62,34 @@ public class Main {
         }
     }
 
-    private static MigrationService getMigrationService() {
+    private static MigrationService getMigrationService(String url, String user, String password) {
         MigrationSource migrationSource =
-                new FileMigrationSource("src/main/resources/migrations", ".sql");
+                new FileMigrationSource("migrations", ".sql");
 
         return new MigrationServiceImpl(
                 new MySqlMigrationRepository(),
-                new JdbcConnectionProvider(URL, USER, PASSWORD),
+                new JdbcConnectionProvider(url, user, password),
                 migrationSource,
-                new SQLMigrationParser(new Sha256HashCalculator(), migrationSource),
-                new ThreadSleeper());
+                new SQLMigrationParser(new Sha256HashCalculator(), migrationSource));
 
+    }
+
+    private static void execute(String message, MigrationAction action)
+            throws SQLException, IOException, InterruptedException {
+        System.out.println(message);
+        try {
+            action.execute();
+        } catch (RuntimeException e) {
+            log.error(e);
+        }
+    }
+
+    private static Optional<Integer> parse(String version) {
+        try {
+            return Optional.of(Integer.parseInt(version));
+        } catch (NumberFormatException e) {
+            System.out.println("Invalid version number: " + version + " \nTry again.");
+        }
+        return Optional.empty();
     }
 }

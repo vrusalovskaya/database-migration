@@ -7,8 +7,6 @@ import java.sql.SQLException;
 import java.util.List;
 
 public interface MigrationRepository {
-    void createLockTable(Connection conn) throws SQLException;
-
     boolean acquireLock(Connection conn) throws SQLException;
 
     void releaseLock(Connection conn) throws SQLException;

@@ -6,7 +6,6 @@ import org.migration.model.Migration;
 import org.migration.model.Resource;
 import org.migration.repository.MigrationRepository;
 import org.migration.util.ConnectionProvider;
-import org.migration.util.Sleeper;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -33,8 +32,6 @@ class MigrationServiceImplTest {
     private MigrationSource migrationSource;
     @Mock
     private MigrationParser migrationParser;
-    @Mock
-    private Sleeper sleeper;
 
     @InjectMocks
     private MigrationServiceImpl migrationService;
@@ -50,7 +47,7 @@ class MigrationServiceImplTest {
     private final String sql = "test sql";
 
     @Test
-    void migrate_shouldExecuteAndSaveTransaction_whenNoAppliedTransactions() throws SQLException, IOException, InterruptedException {
+    void migrate_shouldExecuteAndSaveTransaction_whenNoAppliedTransactions() throws SQLException, IOException {
         prepareDbBeforeMigrate();
 
         doReturn(List.of(resource1)).when(migrationSource).getMigrationResources();
@@ -58,19 +55,19 @@ class MigrationServiceImplTest {
 
         List<Migration> appliedMigrations = new ArrayList<>();
         doReturn(appliedMigrations).when(migrationRepository).getAppliedMigrations(conn);
-        when(migrationSource.read(migration1.getResource())).thenReturn(sql);
+        when(migrationSource.read(migration1.resource())).thenReturn(sql);
 
         migrationService.migrate();
 
         verify(migrationRepository, times(1)).executeMigration(conn, sql);
         verify(migrationRepository, times(1)).saveMigration(conn, migration1);
         assertTrue(appliedMigrations.contains(migration1));
-        verify(conn, times(3)).commit();
+        verify(conn, times(1)).commit();
         verifyLockReleasedAndConnectionClosed();
     }
 
     @Test
-    void migrate_shouldApplyOnlySecondTransaction_whenFirstIsAlreadyApplied() throws SQLException, IOException, InterruptedException {
+    void migrate_shouldApplyOnlySecondTransaction_whenFirstIsAlreadyApplied() throws SQLException, IOException {
         prepareDbBeforeMigrate();
 
         List<Resource> resources = new ArrayList<>();
@@ -85,21 +82,21 @@ class MigrationServiceImplTest {
         appliedMigrations.add(migration1);
         doReturn(appliedMigrations).when(migrationRepository).getAppliedMigrations(conn);
 
-        when(migrationSource.read(migration2.getResource())).thenReturn(sql);
+        when(migrationSource.read(migration2.resource())).thenReturn(sql);
 
         migrationService.migrate();
 
         verify(migrationRepository, times(1)).executeMigration(conn, sql);
         verify(migrationRepository, times(1)).saveMigration(conn, migration2);
-        verify(migrationSource, never()).read(migration1.getResource());
+        verify(migrationSource, never()).read(migration1.resource());
         verify(migrationRepository, never()).saveMigration(conn, migration1);
         assertTrue(appliedMigrations.contains(migration2));
-        verify(conn, times(3)).commit();
+        verify(conn, times(1)).commit();
         verifyLockReleasedAndConnectionClosed();
     }
 
     @Test
-    void migrate_shouldNotApplyAnything_whenAllTransactionsAlreadyApplied() throws SQLException, IOException, InterruptedException {
+    void migrate_shouldNotApplyAnything_whenAllTransactionsAlreadyApplied() throws SQLException, IOException {
         prepareDbBeforeMigrate();
 
         List<Resource> resources = new ArrayList<>();
@@ -117,13 +114,13 @@ class MigrationServiceImplTest {
 
         migrationService.migrate();
 
-        verify(migrationSource, never()).read(migration1.getResource());
+        verify(migrationSource, never()).read(migration1.resource());
         verify(migrationRepository, never()).saveMigration(conn, migration1);
-        verify(migrationSource, never()).read(migration2.getResource());
+        verify(migrationSource, never()).read(migration2.resource());
         verify(migrationRepository, never()).saveMigration(conn, migration2);
-        verify(migrationSource, never()).read(migration4.getResource());
+        verify(migrationSource, never()).read(migration4.resource());
         verify(migrationRepository, never()).saveMigration(conn, migration4);
-        verify(conn, times(2)).commit();
+        verify(conn, never()).commit();
         verifyLockReleasedAndConnectionClosed();
     }
 
@@ -142,34 +139,7 @@ class MigrationServiceImplTest {
         RuntimeException ex = assertThrows(RuntimeException.class, () -> migrationService.migrate());
         assertTrue(ex.getMessage().contains("Migration file checksum mismatch. Version: 1"));
 
-        verify(conn, times(2)).commit();
-        verifyLockReleasedAndConnectionClosed();
-    }
-
-    @Test
-    void migrate_shouldNotThrow_whenLockIsAcquiredOnThirdTry() throws SQLException, InterruptedException, IOException {
-        when(connectionProvider.getConnection()).thenReturn(conn);
-        when(migrationRepository.acquireLock(conn)).thenReturn(false, false, true);
-
-        doNothing().when(sleeper).sleep(anyLong());
-
-        migrationService.migrate();
-
-        verify(conn, times(2)).commit();
-        verifyLockReleasedAndConnectionClosed();
-    }
-
-    @Test
-    void migrate_shouldThrow_whenLockIsNotAcquiredDuring3Tries() throws SQLException, InterruptedException {
-        when(connectionProvider.getConnection()).thenReturn(conn);
-        when(migrationRepository.acquireLock(conn)).thenReturn(false, false, false);
-
-        doNothing().when(sleeper).sleep(anyLong());
-
-        RuntimeException ex = assertThrows(RuntimeException.class, () -> migrationService.migrate());
-        assertTrue(ex.getMessage().contains("Failed to acquire lock"));
-
-        verify(conn, times(1)).commit();
+        verify(conn, never()).commit();
         verifyLockReleasedAndConnectionClosed();
     }
 
@@ -182,7 +152,7 @@ class MigrationServiceImplTest {
 
         List<Migration> appliedMigrations = new ArrayList<>();
         doReturn(appliedMigrations).when(migrationRepository).getAppliedMigrations(conn);
-        when(migrationSource.read(migration1.getResource())).thenReturn(sql);
+        when(migrationSource.read(migration1.resource())).thenReturn(sql);
         doThrow(SQLException.class).when(migrationRepository).executeMigration(conn, sql);
 
         assertThrows(SQLException.class, () -> migrationService.migrate());
@@ -190,12 +160,12 @@ class MigrationServiceImplTest {
         verify(conn, times(1)).rollback();
         verify(migrationRepository, never()).saveMigration(conn, migration1);
         assertFalse(appliedMigrations.contains(migration1));
-        verify(conn, times(2)).commit();
+        verify(conn, never()).commit();
         verifyLockReleasedAndConnectionClosed();
     }
 
     @Test
-    void rollback_shouldRollbackLastTransaction_whenNoVersionPassed() throws SQLException, IOException, InterruptedException {
+    void rollback_shouldRollbackLastTransaction_whenNoVersionPassed() throws SQLException, IOException {
         prepareDbBeforeRollback();
 
         when(migrationRepository.getAppliedMigrations(conn)).thenReturn(getListOf3Migrations());
@@ -209,12 +179,12 @@ class MigrationServiceImplTest {
         verify(migrationRepository, times(1)).deleteMigration(conn, "4");
         verify(migrationRepository, never()).deleteMigration(conn, "2");
         verify(migrationRepository, never()).deleteMigration(conn, "1");
-        verify(conn, times(3)).commit();
+        verify(conn, times(1)).commit();
         verifyLockReleasedAndConnectionClosed();
     }
 
     @Test
-    void rollback_shouldRollbackToSpecifiedVersion_whenVersionPassed() throws SQLException, IOException, InterruptedException {
+    void rollback_shouldRollbackToSpecifiedVersion_whenVersionPassed() throws SQLException, IOException {
         prepareDbBeforeRollback();
 
         when(migrationRepository.getAppliedMigrations(conn)).thenReturn(getListOf3Migrations());
@@ -230,7 +200,7 @@ class MigrationServiceImplTest {
         verify(migrationRepository, times(1)).deleteMigration(conn, "4");
         verify(migrationRepository, times(1)).deleteMigration(conn, "2");
         verify(migrationRepository, never()).deleteMigration(conn, "1");
-        verify(conn, times(4)).commit();
+        verify(conn, times(2)).commit();
         verifyLockReleasedAndConnectionClosed();
     }
 
@@ -317,7 +287,7 @@ class MigrationServiceImplTest {
         verify(migrationRepository, times(1)).deleteMigration(conn, "4");
         verify(migrationRepository, never()).deleteMigration(conn, "2");
         verify(migrationRepository, never()).deleteMigration(conn, "1");
-        verify(conn, times(2)).commit();
+        verify(conn, never()).commit();
         verifyLockReleasedAndConnectionClosed();
     }
 
@@ -350,6 +320,6 @@ class MigrationServiceImplTest {
         verify(migrationRepository, never()).deleteMigration(conn, "4");
         verify(migrationRepository, never()).deleteMigration(conn, "2");
         verify(migrationRepository, never()).deleteMigration(conn, "1");
-        verify(conn, times(2)).commit();
+        verify(conn, never()).commit();
     }
 }

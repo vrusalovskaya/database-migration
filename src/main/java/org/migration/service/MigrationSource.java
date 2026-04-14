@@ -8,6 +8,8 @@ import java.util.Optional;
 
 public interface MigrationSource {
     List<Resource> getMigrationResources() throws IOException;
+
     Optional<Resource> getRollbackResource(String version) throws IOException;
+
     String read(Resource resource) throws IOException;
 }

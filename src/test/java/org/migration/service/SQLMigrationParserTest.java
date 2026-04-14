@@ -32,10 +32,10 @@ class SQLMigrationParserTest {
 
         Migration migration = sqlMigrationParser.parse(resource);
 
-        assertEquals("1", migration.getVersion());
-        assertEquals("init", migration.getDescription());
-        assertEquals(resource, migration.getResource());
-        assertEquals("123", migration.getCheckSum());
+        assertEquals("1", migration.version());
+        assertEquals("init", migration.description());
+        assertEquals(resource, migration.resource());
+        assertEquals("123", migration.checkSum());
     }
 
     @Test
